@@ -1,10 +1,12 @@
 library benchmark_generator.ng2_dart_generator;
 
+import 'dart:math';
 import 'package:benchmark_generator/generator.dart';
 
 class Ng2DartGenerator implements Generator {
   final _fs = new VFileSystem();
   AppGenSpec _genSpec;
+  final Random random = new Random(1234);
 
   VFileSystem generate(AppGenSpec genSpec) {
     _genSpec = genSpec;
@@ -24,7 +26,8 @@ class Ng2DartGenerator implements Generator {
 name: ${_genSpec.name}
 version: 0.0.0
 dependencies:
-  angular2: any
+  angular2:
+    path: /Users/tbosch/projects/angular2/dist/dart/angular2
   browser: any
 transformers:
 - angular2:
@@ -33,8 +36,8 @@ transformers:
     reflection_entry_points:
       - web/index.dart
 - \$dart2js:
-    minify: true
-    commandLineOptions: [--trust-type-annotations,--trust-primitives]
+    minify: false
+    commandLineOptions: [--trust-type-annotations,--trust-primitives,--dump-info]
 ''');
   }
 
@@ -66,8 +69,8 @@ transformers:
     components.forEach((String component) {
       precompiledImports.add('''import 'package:${_genSpec.name}/${component}.precompiled.dart' as _precompiled_${component};''');
       componentImports.add('''import 'package:${_genSpec.name}/${component}.dart';''');
-      templateRegistrations.add('''    ${component}: _precompiled_${component}.commands''');
-      styleRegistrations.add('''    ${component}: _precompiled_${component}.styles''');
+      templateRegistrations.add('''    '${component}_comp_0': _precompiled_${component}.commands''');
+      styleRegistrations.add('''    '${component}_comp_0': _precompiled_${component}.styles''');
     });
 
     _addFile('web/index.dart', '''
@@ -110,7 +113,7 @@ ${styleRegistrations.join(',\n')}
 
   void _generateComponentDartFile(ComponentGenSpec compSpec) {
     final directiveImports = <String>[];
-    final directives = <String>[];
+    final directives = <String>['NgIf', 'NgFor'];
     int totalProps = 0;
     int totalTextProps = 0;
     compSpec.template
@@ -131,14 +134,14 @@ ${styleRegistrations.join(',\n')}
         .join('\n'));
 
     final textProps = new StringBuffer('\n');
-    textProps.write(new List.generate(totalTextProps, (i) => '  var text${i};')
+    textProps.write(new List.generate(totalTextProps, (i) => '  var text${i} = "val${random.nextInt(1000)}";')
         .join('\n'));
 
     final branchProps = new StringBuffer();
     int i = 0;
     compSpec.template.forEach((NodeInstanceGenSpec nodeSpec) {
       if (nodeSpec.branchSpec != null) {
-        branchProps.write('  var branch${i++};');
+        branchProps.write('  var branch${i++} = ${i == 1};');
       }
     });
 
@@ -169,6 +172,7 @@ ${textProps}
     int textIdx = 0;
     var template = compSpec.template.map((NodeInstanceGenSpec nodeSpec) {
       final bindings = new StringBuffer();
+
       if (nodeSpec.propertyBindingCount > 0) {
         bindings.write(' ');
         bindings.write(new List.generate(nodeSpec.propertyBindingCount, (i) => '[prop${i}]="prop${i}"')
@@ -214,6 +218,7 @@ const styles = const <String>[];
 final commands = <TemplateCmd>[
 ''');
 
+    int protoViewIndex = 1;
     compSpec.template.forEach((NodeInstanceGenSpec nodeSpec) {
       bool isBound =
           nodeSpec.branchSpec != null ||
@@ -221,34 +226,45 @@ final commands = <TemplateCmd>[
           nodeSpec.propertyBindingCount > 0 ||
           nodeSpec.textBindingCount > 0;
 
-      // Begin element
-      final beginCommand = nodeSpec.ref is ComponentGenSpec
-          ? 'bc'  // child component
-          : isBound   // plain HTML element
-            ? 'bbe'
-            : 'be';
-
-      // TODO: how does one specify property bindings?
-      buf.write('  _tf_.${beginCommand}(');
-      buf.write("name: '${nodeSpec.nodeName}'");
-
+      final isComponent = nodeSpec.ref is ComponentGenSpec;
       final directives = <String>[];
-      if (beginCommand == 'bc') {
-        buf.write(', nativeShadowDom: false');
+      String templateDirective = null;
+      if (nodeSpec.branchSpec is IfBranchSpec) {
+        templateDirective = 'NgIf';
+      } else if (nodeSpec.branchSpec is RepeatBranchSpec) {
+        templateDirective = 'NgFor';
+      }
+      if (isComponent) {
         directives.add(nodeSpec.nodeName);
       }
 
-      if (nodeSpec.branchSpec is IfBranchSpec) {
-        directives.add('NgIf');
-      } else if (nodeSpec.branchSpec is RepeatBranchSpec) {
-        directives.add('NgFor');
+      if (templateDirective != null) {
+        buf.write("    _tf_.et('${compSpec.name}_embedded_${protoViewIndex++}', null, null, ${templateDirective}, false, null, [");
       }
 
-      buf.write(', directives: const ${directives}');
-      buf.writeln('),');
+      var endCommand;
+      // Begin element
+      buf.write("  _tf_.");
+      if (isComponent) {
+        buf.write("bc('${nodeSpec.nodeName}_comp_0', '${nodeSpec.nodeName}', null, null, null, ${directives}, false, null),");
+        endCommand = 'ec';
+      } else {
+        if (isBound) {
+          buf.write("bbe");
+        } else {
+          buf.write("be");
+        }
+        buf.write("('${nodeSpec.nodeName}', null, null, null, ${directives}, null),");
+        endCommand = 'ee';
+      }
+      if (nodeSpec.textBindingCount > 0) {
+        buf.write("    _tf_.btt(null),");
+      }
+      buf.writeln('  _tf_.${endCommand}(),');
+      if (templateDirective != null) {
+        buf.writeln(']),');
+      }
 
-      // End element
-      buf.writeln(beginCommand == 'bc' ? '  _tf_.ec(),' : '  _tf_.ee(),');
     });
 
     buf.writeln('];');

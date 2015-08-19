@@ -42,7 +42,7 @@ class AppDescriptor extends Object with Boilerplate {
 
 class ComponentDescriptor extends Object with Boilerplate {
   String name;
-  Node template;
+  List<Node> template;
 }
 
 class Node extends Object with Boilerplate {
