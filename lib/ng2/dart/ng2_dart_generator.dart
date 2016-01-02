@@ -27,7 +27,7 @@ name: ${_genSpec.name}
 version: 0.0.0
 dependencies:
   angular2:
-    path: /Users/tbosch/projects/angular2/dist/dart/angular2
+    path: /Users/tbosch/projects/benchmark_generator/build/ng2a/dart/angular2
   browser: any
 transformers:
 - angular2:
@@ -47,6 +47,8 @@ transformers:
 <html>
   <title>Generated app: ${_genSpec.name}</title>
 <body>
+  <button id="createBtn">Create</button>
+  <button id="destroyBtn">Destroy</button>
   <${_genSpec.rootComponent.name}>
     Loading...
   </${_genSpec.rootComponent.name}>
@@ -62,53 +64,40 @@ transformers:
   }
 
   void _generateIndexDart(Iterable<String> components) {
-    final precompiledImports = <String>[];
-    final componentImports = <String>[];
-    final templateRegistrations = <String>[];
-    final styleRegistrations = <String>[];
-    components.forEach((String component) {
-      precompiledImports.add('''import 'package:${_genSpec.name}/${component}.precompiled.dart' as _precompiled_${component};''');
-      componentImports.add('''import 'package:${_genSpec.name}/${component}.dart';''');
-      templateRegistrations.add('''    '${component}_comp_0': _precompiled_${component}.commands''');
-      styleRegistrations.add('''    '${component}_comp_0': _precompiled_${component}.styles''');
-    });
-
     _addFile('web/index.dart', '''
 library ${_genSpec.name};
 
 import 'dart:html';
 import 'package:angular2/bootstrap.dart';
-${componentImports.join('\n')}
-${precompiledImports.join('\n')}
+import 'package:${_genSpec.name}/${_genSpec.rootComponent.name}.dart';
 
 main() async {
-  window.console.timeStamp('>>> before bootstrap');
-  await bootstrap(${_genSpec.rootComponent.name}, [
-    bind(TemplateRegistry).toValue(_registerTemplates())
-  ]);
-  window.console.timeStamp('>>> after bootstrap');
+  window.console.time('bootstrap');
+  var componentRef = await bootstrap(${_genSpec.rootComponent.name});
+  window.console.timeEnd('bootstrap');
+  var createBtn = querySelector('#createBtn');
+  createBtn.onClick.listen( (e) {
+    window.console.time('create');
+    componentRef.instance.branch0 = true;
+    componentRef.hostView.changeDetectorRef.detectChanges();
+    window.console.timeEnd('create');
+  });
+  var destroyBtn = querySelector('#destroyBtn');
+  destroyBtn.onClick.listen( (e) {
+    window.console.time('destroy');
+    componentRef.instance.branch0 = false;
+    componentRef.hostView.changeDetectorRef.detectChanges();
+    window.console.timeEnd('destroy');
+  });
+
 }
 
-TemplateRegistry _registerTemplates() {
-  var sw = new Stopwatch()..start();
-  window.console.timeStamp('>>> start template registry init');
-  final res = new TemplateRegistry({
-${templateRegistrations.join(',\n')}
-  }, {
-${styleRegistrations.join(',\n')}
-  });
-  window.console.timeStamp('>>> end template registry init');
-  sw.stop();
-  print('>>> registry initialized in \${sw.elapsedMicroseconds} micros');
-  return res;
-}
 ''');
   }
 
   void _generateComponentFiles(ComponentGenSpec compSpec) {
     _generateComponentDartFile(compSpec);
     _generateComponentTemplateFile(compSpec);
-    _generatePrecompiledTemplateFile(compSpec);
   }
 
   void _generateComponentDartFile(ComponentGenSpec compSpec) {
@@ -181,17 +170,17 @@ ${textProps}
       final branch = new StringBuffer();
       if (nodeSpec.branchSpec is IfBranchSpec) {
         IfBranchSpec ifBranch = nodeSpec.branchSpec;
-        branch.write(' *ng-if="branch${branchIndex++}"');
+        branch.write(' *ngIf="branch${branchIndex++}"');
       } else if (nodeSpec.branchSpec is RepeatBranchSpec) {
         RepeatBranchSpec repeatBranch = nodeSpec.branchSpec;
-        branch.write(' *ng-for="#item of branch${branchIndex++}"');
+        branch.write(' *ngFor="#item of branch${branchIndex++}"');
       }
 
       final textBindings = new List.generate(nodeSpec.textBindingCount, (_) {
         return '{{text${textIdx++}}}';
       }).join();
-
-      return '<${nodeSpec.nodeName}${bindings}${branch}>${textBindings}</${nodeSpec.nodeName}>';
+      return '<${nodeSpec.nodeName}${bindings}${branch}>${textBindings}</${nodeSpec.nodeName}>' +
+             '<${nodeSpec.nodeName}${bindings}${branch}>${textBindings}</${nodeSpec.nodeName}>';
     }).join('\n');
     _addFile('lib/${compSpec.name}.html', template);
   }
